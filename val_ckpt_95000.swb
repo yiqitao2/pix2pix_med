@@ -1,0 +1,18 @@
+#!/bin/bash
+
+#SBATCH --job-name="val_pix2pix"
+#SBATCH --output="slurm_logs/SR_val.%j.out"
+#SBATCH --error="slurm_logs/SR_val.%j.err"
+#SBATCH --mem=32g
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task=16
+#SBATCH --partition=gpuA100x4      # <- or one of: gpuA100x4 gpuA40x4 gpuA100x8 gpuMI100x8
+#SBATCH --account=bcog-delta-gpu
+#SBATCH --time=48:00:00
+#SBATCH --gpus-per-node=1
+#SBATCH --gpu-bind=closest
+
+source ~/.bashrc
+conda activate pytorch-CycleGAN-and-pix2pix
+python val_ckpt_95000.py --name med_palette_2D --model pix2pix --input_nc 5 --output_nc 1
