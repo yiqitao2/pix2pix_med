@@ -1,31 +1,7 @@
-"""General-purpose test script for image-to-image translation.
+'''
+Reconstruct 3D from 2D slices.
+'''
 
-Once you have trained your model with train.py, you can use this script to test the model.
-It will load a saved model from '--checkpoints_dir' and save the results to '--results_dir'.
-
-It first creates model and dataset given the option. It will hard-code some parameters.
-It then runs inference for '--num_test' images and save results to an HTML file.
-
-Example (You need to train models first or download pre-trained models from our website):
-    Test a CycleGAN model (both sides):
-        python test.py --dataroot ./datasets/maps --name maps_cyclegan --model cycle_gan
-
-    Test a CycleGAN model (one side only):
-        python test.py --dataroot datasets/horse2zebra/testA --name horse2zebra_pretrained --model test --no_dropout
-
-    The option '--model test' is used for generating CycleGAN results only for one side.
-    This option will automatically set '--dataset_mode single', which only loads the images from one set.
-    On the contrary, using '--model cycle_gan' requires loading and generating results in both directions,
-    which is sometimes unnecessary. The results will be saved at ./results/.
-    Use '--results_dir <directory_path_to_save_result>' to specify the results directory.
-
-    Test a pix2pix model:
-        python test.py --dataroot ./datasets/facades --name facades_pix2pix --model pix2pix --direction BtoA
-
-See options/base_options.py and options/test_options.py for more test options.
-See training and test tips at: https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/blob/master/docs/tips.md
-See frequently asked questions at: https://github.com/junyanz/pytorch-CycleGAN-and-pix2pix/blob/master/docs/qa.md
-"""
 import os
 import torch
 from options.test_options import TestOptions
@@ -36,45 +12,13 @@ from util import html
 from med_palette_2D.data import dataset
 from torch.utils.data import DataLoader
 from collections import OrderedDict
+import numpy as np
 
+from dataset_brats import NiftiPairImageGenerator
 """ try:
     import wandb
 except ImportError:
     print('Warning: wandb package cannot be found. The option "--use_wandb" will result in error.') """
-
-def run_test(load_iter_value):
-    opt.load_iter = load_iter_value
-    opt.eval = True
-    model = create_model(opt)      # create a model given opt.model and other options
-    model.setup(opt)               # regular setup: load and print networks; create schedulers
-    if opt.eval:
-        model.eval()
-
-    total_losses = OrderedDict()
-    total_losses['G_L2'] = 0
-
-    criterionMSE = torch.nn.MSELoss()
-    for i, data in enumerate(val_dl):
-        """ if i >= 1000:  # only apply our model to opt.num_test images.
-            break """
-        model.set_input(data)  # unpack data from data loader
-        model.test()           # run inference
-
-        real_B = model.real_B
-        fake_B = model.fake_B
-
-        l2_loss = criterionMSE(fake_B, real_B)
-        total_losses['G_L2'] += l2_loss
-        if i % 1000 == 0:
-            print(f'loss at iter {i}: l2: {l2_loss}')
-        #print(f'loss at iter {i+1}: l2: {l2_loss}')
-    average_losses = OrderedDict()
-    for key, value in total_losses.items():     
-        average_losses[key] = value / len(val_dl)
-    print('Average losses of validation set:')
-    for key, value in average_losses.items():
-        print(f"{key}: {value}")
-
 
 if __name__ == '__main__':
     opt = TestOptions().parse()  # get test options
@@ -84,21 +28,79 @@ if __name__ == '__main__':
     opt.serial_batches = True  # disable data shuffling; comment this line if results on randomly chosen images are needed.
     opt.no_flip = True    # no flip; comment this line if results on flipped images are needed.
     opt.display_id = -1   # no visdom display; the test code saves the results to a HTML file. """
- 
-    
+
+    # set arguments
+    dataset_folder='/projects/bcai/BraTS2021_Training_Data'
+    input_modality = 'flair_poolx4'
+    target_modality = 'flair'
+
     val_dataset = dataset.Brast_2D(
-        dataset_folder='/projects/bcai/BraTS2021_Training_Data',
-        input_modality = 'flair_poolx4',
-        target_modality = 'flair',
+        dataset_folder = dataset_folder,
+        input_modality = input_modality,
+        target_modality = target_modality,
+        input_size = 192, 
+        depth_size = 152,
         slice_direction = 1,
         train = False
     )
+
     val_dl = DataLoader(
         val_dataset,
-        batch_size = 4,
+        batch_size = 1,
         shuffle = True,
-        num_workers = 2,
+        num_workers = 1,
     ) 
-    print(len(val_dl))
-    run_test(95000)
+    # extract the arguments
+    slice_direction = val_dataset.slice_direction
+    if slice_direction == 1:
+        slice_len = 152
+    else:
+        slice_len = 192
+    
+    # set up the model based on the iter_95000 ckpt
+    opt.load_iter = 95000
+    opt.eval = True
+    model = create_model(opt)      # create a model given opt.model and other options
+    model.setup(opt)               # regular setup: load and print networks; create schedulers
+    if opt.eval:
+        model.eval()
+    real_Bs = []
+    fake_Bs = []
+    real_Bs_3d = []
+    fake_Bs_3d = []
+    for i, data in enumerate(val_dl):
+        """ if i >= 1000:  # only apply our model to opt.num_test images.
+            break """
+        model.set_input(data)  # unpack data from data loader
+        model.test()           # run inference
+
+        real_B = model.real_B  # gt image, torch.Size([1, 1, 192, 192])
+        fake_B = model.fake_B  # output image, torch.Size([1, 1, 192, 192])
+        #print(np.shape(real_B), np.shape(fake_B))
+        idx_3d = i // slice_len
+        idx_slice = i % slice_len
+        """ if idx_slice == 0:
+            imgs = NiftiPairImageGenerator(dataset_folder, 
+                                        input_modality = input_modality, 
+                                        target_modality = target_modality, 
+                                        input_size = 192, 
+                                        depth_size = 152, 
+                                        input_channel = 8,
+                                        residual_training = True,
+                                        train = False) """
+        real_Bs.append(real_B)
+        fake_Bs.append(fake_B)
+        #print(len(fake_Bs), np.shape(fake_Bs[idx_slice]))
+        if idx_slice == slice_len - 1: # done with the indexed {idx_3d} 3D-img reconstruction
+            real_Bs_3d.append(torch.cat(real_Bs, dim=slice_direction))
+            fake_Bs_3d.append(torch.cat(fake_Bs, dim=slice_direction)) # every appended shape: torch.Size([1, 152, 192, 192])
+            real_Bs = []
+            fake_Bs = []
+            #print('The len and shape:')
+            #print(len(fake_Bs_3d), np.shape(fake_Bs_3d[idx_3d]))
+        
+
+        
+
+
     
