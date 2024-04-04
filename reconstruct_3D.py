@@ -66,17 +66,36 @@ if __name__ == '__main__':
         model.eval()
     real_Bs = []
     fake_Bs = []
-    real_Bs_3d = []
-    fake_Bs_3d = []
+    folder_path = '3d_imgs'
     for i, data in enumerate(val_dl):
         """ if i >= 1000:  # only apply our model to opt.num_test images.
             break """
+        """ if i==0:
+            print(np.shape(data['A']),np.shape(data['B'])) 
+            # torch.Size([1, 5, 192, 192]) torch.Size([1, 1, 192, 192])
+            # because DataLoader will add a new dimension at the head, which is the batch_size!!!!! """
         model.set_input(data)  # unpack data from data loader
         model.test()           # run inference
-
+        real_A = model.real_A  # input image, torch.Size([1, 5, 192, 192])
         real_B = model.real_B  # gt image, torch.Size([1, 1, 192, 192])
         fake_B = model.fake_B  # output image, torch.Size([1, 1, 192, 192])
         #print(np.shape(real_B), np.shape(fake_B))
+        #real_B = real_A[0,:,:,:] + 2*real_B
+
+        # delete the batch_size dimension
+        real_A = real_A[0]
+        real_B = real_B[0]
+        fake_B = fake_B[0]
+        #print(np.shape(real_A),np.shape(fake_B))
+        #torch.Size([5, 192, 192]) torch.Size([1, 192, 192])
+        real_B = 2 * real_B + real_A[0:1,:,:]
+        fake_B = 2 * fake_B + real_A[0:1,:,:]
+        #print(np.shape(real_B),np.shape(fake_B))
+        #torch.Size([1, 192, 192]) torch.Size([1, 192, 192])
+        """ if i==0:
+            print(np.shape(real_A)) #torch.Size([1, 5, 192, 192])
+            print(np.shape(real_A[:,0,:,:])) # torch.Size([1, 192, 192])
+            print(np.shape(real_A[:,0:1,:,:])) #torch.Size([1, 1, 192, 192]) """
         idx_3d = i // slice_len
         idx_slice = i % slice_len
         """ if idx_slice == 0:
@@ -90,14 +109,20 @@ if __name__ == '__main__':
                                         train = False) """
         real_Bs.append(real_B)
         fake_Bs.append(fake_B)
+        print(len(fake_Bs))
         #print(len(fake_Bs), np.shape(fake_Bs[idx_slice]))
         if idx_slice == slice_len - 1: # done with the indexed {idx_3d} 3D-img reconstruction
-            real_Bs_3d.append(torch.cat(real_Bs, dim=slice_direction))
-            fake_Bs_3d.append(torch.cat(fake_Bs, dim=slice_direction)) # every appended shape: torch.Size([1, 152, 192, 192])
+            real_B_3d = torch.stack(real_Bs, dim=1)
+            fake_B_3d = torch.stack(fake_Bs, dim=1)
+            #print(np.shape(real_B_3d),np.shape(fake_B_3d))
+            #torch.Size([1, 152, 192, 192]) torch.Size([1, 152, 192, 192])
+            file_path_real = os.path.join(folder_path, f'real_{idx_3d}.pth')
+            file_path_fake = os.path.join(folder_path, f'fake_{idx_3d}.pth')
+            torch.save(real_B_3d,file_path_real)
+            torch.save(fake_B_3d,file_path_fake)
             real_Bs = []
             fake_Bs = []
-            #print('The len and shape:')
-            #print(len(fake_Bs_3d), np.shape(fake_Bs_3d[idx_3d]))
+
         
 
         
